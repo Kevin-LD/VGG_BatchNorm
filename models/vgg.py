@@ -4,7 +4,7 @@ VGG
 import numpy as np
 from torch import nn
 
-from codes_for_pj.utils.nn import init_weights_
+from utils.nn import init_weights_
 
 # ## Models implementation
 def get_number_of_parameters(model):
