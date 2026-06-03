@@ -1,1 +1,8 @@
+# dataset
 data/cifar-10-python.tar.gz
+
+# macOS
+.DS_Store
+
+# python
+__pycache__/
