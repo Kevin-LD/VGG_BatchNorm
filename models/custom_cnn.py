@@ -71,9 +71,9 @@ class CIFAR10ResidualNet(nn.Module):
     - 3(a) Batch-Norm 层
     - 3(b) Dropout
     - 3(c) 残差连接
-    - 4(a) 参数化配置滤波器/神经元数量
+    - 4(a) 参数化配置滤波器/神经元数量与网络深度
     """
-    def __init__(self, base_channels=32, num_classes=10, dropout_rate=0.3, activation_type="relu"):
+    def __init__(self, base_channels=32, num_blocks=[2, 2, 2], num_classes=10, dropout_rate=0.3, activation_type="relu"):
         super().__init__()
         
         # 策略 4(a): 通过 base_channels 缩放整个网络的滤波器/通道数量
@@ -88,15 +88,15 @@ class CIFAR10ResidualNet(nn.Module):
             get_activation(activation_type)
         )
 
-        # 阶段 2: 包含残差块与多尺度池化
+        # 阶段 2: 残差网络
         # 组件 2(b): 2D 卷积隐含在残差块内部
-        self.layer1 = ResidualBlock(c1, c1, stride=1, activation_type=activation_type)
+        self.layer1 = self._make_layer(c1, c1, num_blocks[0], activation_type)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 组件 2(c): 2D 池化
 
-        self.layer2 = ResidualBlock(c1, c2, stride=1, activation_type=activation_type)
+        self.layer2 = self._make_layer(c1, c2, num_blocks[1], activation_type)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.layer3 = ResidualBlock(c2, c3, stride=1, activation_type=activation_type)
+        self.layer3 = self._make_layer(c2, c3, num_blocks[2], activation_type)
         # 采用自适应平均池化，将特征图大小固定为 1x1，提高对不同输入尺寸的鲁棒性并减少全连接层参数量
         self.pool3 = nn.AdaptiveAvgPool2d((1, 1))
 
@@ -109,6 +109,19 @@ class CIFAR10ResidualNet(nn.Module):
         self.fc1 = nn.Linear(c3, c3 // 2)
         self.act_fc = get_activation(activation_type)
         self.fc2 = nn.Linear(c3 // 2, num_classes)
+
+    def _make_layer(self, in_channels, out_channels, num_blocks, activation_type):
+        """
+        辅助函数: 动态构建包含多个残差块的 Stage
+        只有该 Stage 的第一个 Block 负责调整通道数，后续的 Block 均保持通道数不变
+        """
+        layers = []
+        # 第一个 Block 处理可能存在的通道变换
+        layers.append(ResidualBlock(in_channels, out_channels, stride=1, activation_type=activation_type))
+        # 后续的 Block 保持通道数一致
+        for _ in range(1, num_blocks):
+            layers.append(ResidualBlock(out_channels, out_channels, stride=1, activation_type=activation_type))
+        return nn.Sequential(*layers)
 
     def forward(self, x):
         # 提取特征图（暴露中间层便于后续 Task 1.1.6 要求的滤波器与特征可视化）
@@ -130,8 +143,13 @@ class CIFAR10ResidualNet(nn.Module):
 
 if __name__ == "__main__":
     # 测试代码：验证网络前向传播维度及参数量统计
-    # 策略 4(a) & 4(c) 示例配置
-    test_model = CIFAR10ResidualNet(base_channels=32, activation_type="gelu", dropout_rate=0.2)
+    # 通过传递 num_blocks 参数实现深度配置，这里演示每个层有 2 个残差块
+    test_model = CIFAR10ResidualNet(
+        base_channels=32, 
+        num_blocks=[2, 2, 2], 
+        activation_type="gelu", 
+        dropout_rate=0.2
+    )
     
     # 模拟一个标准 CIFAR-10 batch 的输入: [Batch_size, Channels, Height, Width]
     mock_input = torch.randn(4, 3, 32, 32)
