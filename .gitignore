@@ -1,8 +1,18 @@
 # dataset
 data/cifar-10-python.tar.gz
+cifar-10-batches-py/
 
 # macOS
 .DS_Store
 
 # python
 __pycache__/
+
+# IDE
+.vscode/
+
+# temp
+memo.txt
+
+# experiments
+runs/
