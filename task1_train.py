@@ -30,7 +30,9 @@ def train_model(config):
 
     # 2. 动态生成基于配置和时间戳的存储路径
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_name = f"{config['optimizer_type']}_{config['loss_type']}_{config['activation_type']}_ch{config['base_channels']}_{timestamp}"
+    # 将残差块配置转换为字符串（例如 [2, 2, 2] -> "222"）以便体现在文件夹命名中
+    blocks_str = "".join(map(str, config.get('num_blocks', [2, 2, 2])))
+    run_name = f"{config['optimizer_type']}_{config['loss_type']}_{config['activation_type']}_ch{config['base_channels']}_b{blocks_str}_{timestamp}"
     run_dir = os.path.join('runs', run_name)
     os.makedirs(run_dir, exist_ok=True)
     print(f"Experiment directory created at: {run_dir}")
@@ -50,8 +52,10 @@ def train_model(config):
     val_loader = get_cifar_loader(batch_size=config['batch_size'], train=True, val_split=val_split, is_val=True, shuffle=False, num_workers=4)
 
     # 5. 模型实例化
+    # 显式传入 config 中的 num_blocks 参数以配置网络深度
     model = CIFAR10ResidualNet(
         base_channels=config['base_channels'],
+        num_blocks=config.get('num_blocks', [2, 2, 2]),
         dropout_rate=config['dropout_rate'],
         activation_type=config['activation_type']
     ).to(device)
@@ -179,7 +183,10 @@ if __name__ == "__main__":
         'val_split': 0.1,
 
         # 策略 4(a): 滤波器基准通道数 (可尝试 16, 32, 64)
-        'base_channels': 32,
+        'base_channels': 64,
+        
+        # 策略 4(a): 网络深度配置 (各 Stage 堆叠的残差块数量，可尝试 [1, 1, 1], [2, 2, 2], [3, 3, 3])
+        'num_blocks': [3, 3, 3],
         
         # dropout rate
         'dropout_rate': 0.3,
