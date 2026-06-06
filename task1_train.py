@@ -23,24 +23,32 @@ from models.custom_cnn import CIFAR10ResidualNet, get_number_of_parameters
 from utils.eval import eval
 from utils.training import get_criterion, get_optimizer
 
-def train_model(config):
+def train_model(config, save_dir='runs', project_name='cifar10_task1', run_name=None):
+    """
+    独立训练核心函数。
+    支持显式指定存储根目录、项目名称与运行批次名称，并在训练结束后返回最优指标字典。
+    """
     # 1. 硬件设备准备
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # 2. 动态生成基于配置和时间戳的存储路径
+    # 2. 动态生成或使用指定的存储路径
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    # 将残差块配置转换为字符串（例如 [2, 2, 2] -> "222"）以便体现在文件夹命名中
     blocks_str = "".join(map(str, config.get('num_blocks', [2, 2, 2])))
-    run_name = f"{config['optimizer_type']}_{config['loss_type']}_{config['activation_type']}_ch{config['base_channels']}_b{blocks_str}_{timestamp}"
-    run_dir = os.path.join('runs', run_name)
+    
+    # 若外部未指定运行名称，则基于当前配置和时间戳自动构建
+    if run_name is None:
+        run_name = f"{config['optimizer_type']}_{config['loss_type']}_{config['activation_type']}_ch{config['base_channels']}_b{blocks_str}_{timestamp}"
+    
+    # 将路径拼接至传入的 save_dir 中，实现目录的层级嵌套
+    run_dir = os.path.join(save_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
     print(f"Experiment directory created at: {run_dir}")
 
     # 3. 初始化 Weights & Biases 监控
     if WANDB_AVAILABLE:
         wandb.init(
-            project="cifar10_task1",
+            project=project_name,
             name=run_name,
             config=config,
             dir=run_dir
@@ -52,7 +60,6 @@ def train_model(config):
     val_loader = get_cifar_loader(batch_size=config['batch_size'], train=True, val_split=val_split, is_val=True, shuffle=False, num_workers=4)
 
     # 5. 模型实例化
-    # 显式传入 config 中的 num_blocks 参数以配置网络深度
     model = CIFAR10ResidualNet(
         base_channels=config['base_channels'],
         num_blocks=config.get('num_blocks', [2, 2, 2]),
@@ -69,7 +76,20 @@ def train_model(config):
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['epochs'])
 
     history = []
-    best_val_accuracy = 0.0  # 监控指标改为验证集准确率，初始为 0.0
+    best_val_accuracy = 0.0 
+
+    # 返回给外部调度器的核心信息
+    best_run_summary = {
+        'run_name': run_name,
+        'run_dir': run_dir,
+        'best_epoch': 0,
+        'best_val_accuracy': 0.0,
+        'corresponding_val_loss': float('inf'),
+        'corresponding_train_loss': float('inf'),
+        'corresponding_train_accuracy': 0.0,
+        'total_parameters': total_params,
+        'timestamp': timestamp
+    }
 
     # 7. 核心训练循环
     print("Starting training...")
@@ -99,14 +119,12 @@ def train_model(config):
             epoch_time = time.time() - start_time
             throughput = total / epoch_time
 
-            # 计算基本训练指标
             train_loss = running_loss / total
             train_acc = correct / total
 
             # 在验证集上进行评估
             val_loss, val_acc = eval(model, val_loader, criterion, device)
             
-            # 精准捕获当前 Epoch 实际生效的学习率，避免 scheduler.step() 带来的单步错位
             current_lr = optimizer.param_groups[0]['lr']
             scheduler.step()
 
@@ -114,7 +132,6 @@ def train_model(config):
             print(f"Train Loss: {train_loss:.4f} | Train Accuracy: {train_acc*100:.2f}%")
             print(f"Val Loss:   {val_loss:.4f} | Val Accuracy:   {val_acc*100:.2f}%")
 
-            # 记录到本地列表
             metrics = {
                 'epoch': epoch,
                 'train_loss': train_loss,
@@ -126,15 +143,22 @@ def train_model(config):
             }
             history.append(metrics)
 
-            # 将指标推送到 W&B
             if WANDB_AVAILABLE:
                 wandb.log(metrics)
 
-            # 基于验证集最高准确率（Best Val Accuracy）保存权重与元数据
+            # 基于验证集最高准确率保存权重、元数据并更新外部返回字典
             if val_acc > best_val_accuracy:
                 best_val_accuracy = val_acc
                 
-                # 封装元数据字典
+                # 动态同步更新需要向外部返回的报告摘要
+                best_run_summary.update({
+                    'best_epoch': epoch,
+                    'best_val_accuracy': val_acc,
+                    'corresponding_val_loss': val_loss,
+                    'corresponding_train_loss': train_loss,
+                    'corresponding_train_accuracy': train_acc
+                })
+
                 metadata = {
                     'epoch': epoch,
                     'best_val_accuracy': best_val_accuracy,
@@ -160,7 +184,7 @@ def train_model(config):
             print("-" * 60)
 
     finally:
-        # 8. 善后处理机制（键盘中断退出，保存已有日志）
+        # 8. 善后处理机制
         print("Training interrupted or completed. Saving logs...")
         if history:
             log_df = pd.DataFrame(history)
@@ -170,14 +194,17 @@ def train_model(config):
             wandb.finish()
             
         print(f"All saved logs and weights are safe in {run_dir}")
+        
+    # 将包含核心评估指标的字典返回给调用它的搜索脚本
+    return best_run_summary
 
 
 if __name__ == "__main__":
     # 实验超参数配置字典
     experiment_config = {
-        'epochs': 30,
+        'epochs': 100,
         'batch_size': 128,
-        'lr': 1e-3,
+        'lr': 0.01,
         
         # 验证集划分比例配置
         'val_split': 0.1,
@@ -195,10 +222,10 @@ if __name__ == "__main__":
         'activation_type': 'relu',
         
         # 策略 5(a): 优化器选择 ('adam', 'adamw', 'sgd')
-        'optimizer_type': 'adamw',
+        'optimizer_type': 'sgd',
         
         # 策略 4(b): 损失函数 ('ce', 'ce_smoothing') 与正则化项权重 (Weight Decay)
-        'weight_decay': 1e-4,  # L2 正则化项权重
+        'weight_decay': 0.0001,  # L2 正则化项权重
         'loss_type': 'ce',
         'label_smoothing': 0.1  # 仅在 ce_smoothing 时生效
     }
