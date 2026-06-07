@@ -27,7 +27,6 @@ class MultiLayerActivationHook:
 def get_real_cifar_sample(val_split=0.1):
     """
     利用项目现有的数据加载器，从验证集中随机抽取一张真实的 CIFAR-10 图像。
-    根据传入的 loader 配置，使用相应的均值和标准差进行反归一化。
     """
     val_loader = get_cifar_loader(
         batch_size=1, 
