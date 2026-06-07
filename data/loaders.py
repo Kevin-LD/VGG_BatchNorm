@@ -42,10 +42,10 @@ class TransformedDataset(Dataset):
         return len(self.dataset)
 
 
-def get_cifar_loader(root='./data/', batch_size=128, train=True, val_split=0.0, is_val=False, shuffle=True, num_workers=4, n_items=-1):
+def get_cifar_loader(root='./data/', batch_size=128, train=True, val_split=0.0, is_val=False, shuffle=True, num_workers=4, n_items=-1, augment=True):
     """
     获取 CIFAR-10 的 DataLoader。
-    支持标准数据增强（仅针对训练集生效）。
+    支持标准数据增强（仅针对训练集生效，可通过 augment 参数控制开关）。
     支持通过 val_split 参数从训练集中划分出独立的验证集。
     """
     # 基础归一化配置
@@ -67,6 +67,9 @@ def get_cifar_loader(root='./data/', batch_size=128, train=True, val_split=0.0, 
         normalize
     ])
 
+    # 如果 augment=False，训练集也将使用和验证集一样、没有随机性的变换
+    active_train_transform = train_transforms if augment else val_transforms
+
     # 载入基础数据集（注意：此处显式传入 transform=None，将变换递延至后续包装器处理）
     base_dataset = datasets.CIFAR10(root=root, train=train, download=True, transform=None)
     
@@ -83,14 +86,14 @@ def get_cifar_loader(root='./data/', batch_size=128, train=True, val_split=0.0, 
                 generator=torch.Generator().manual_seed(42)
             )
             
-            # 根据需求指定返回动态增强的训练集，或者无增强的纯净验证集
+            # 根据需求指定返回动态增强的训练集，或者无增强的验证集
             if is_val:
                 dataset = TransformedDataset(val_subset, transform=val_transforms)
             else:
-                dataset = TransformedDataset(train_subset, transform=train_transforms)
+                dataset = TransformedDataset(train_subset, transform=active_train_transform)
         else:
-            # 未指定划分比例时，整个训练集全部应用增强
-            dataset = TransformedDataset(base_dataset, transform=train_transforms)
+            # 未指定划分比例时，根据开关决定整个训练集是否应用增强
+            dataset = TransformedDataset(base_dataset, transform=active_train_transform)
     else:
         # 测试集严格执行无增强变换
         dataset = TransformedDataset(base_dataset, transform=val_transforms)
