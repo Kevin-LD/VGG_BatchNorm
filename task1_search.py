@@ -33,9 +33,9 @@ def run_hyperparameter_search():
         'dropout_rate': [0.1, 0.3]
     }
 
-    # 3. 动态创建本次实验搜索的总文件夹 (格式：runs/search_YYYYMMDD_HHMMSS)
+    # 3. 动态创建本次实验搜索的总文件夹 (格式：runs/task1/search_YYYYMMDD_HHMMSS)
     search_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    parent_search_dir = os.path.join('runs', f"search_{search_timestamp}")
+    parent_search_dir = os.path.join('runs/task1', f"search_{search_timestamp}")
     os.makedirs(parent_search_dir, exist_ok=True)
     
     # 4. 利用笛卡尔积生成实验网格

@@ -23,7 +23,7 @@ from models.custom_cnn import CIFAR10ResidualNet, get_number_of_parameters
 from utils.eval import eval
 from utils.training import get_criterion, get_optimizer
 
-def train_model(config, save_dir='runs', project_name='cifar10_task1', run_name=None):
+def train_model(config, save_dir='runs/task1', project_name='cifar10_task1', run_name=None):
     """
     独立训练核心函数。
     支持显式指定存储根目录、项目名称与运行批次名称，并在训练结束后返回最优指标字典。
