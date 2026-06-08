@@ -67,7 +67,7 @@ def main(exp_dir):
     GRADIENT_PREDICTIVENESS_W_SIZE = 1
     EFFECITVE_BETA_SMOOTHNESS_W_SIZE = 1
     
-    # 阶段三：调用绘图引擎重新生成最终的三大景观对比图
+    # 生成对比图
     print("\n" + "-" * 50)
     print(" 绘图流 1/3: 重新生成 Loss Landscape Smoothness 条带图...")
     plot_landscape_metric(
@@ -111,6 +111,6 @@ def main(exp_dir):
 
 
 if __name__ == '__main__':
-    exp_dir = "runs/task2/VGG_OriginalPaper_Landscape_20260608_162958"
+    exp_dir = "runs/task2/VGG_OriginalPaper_Landscape_20260608_123715_final_result"
     
     main(exp_dir)

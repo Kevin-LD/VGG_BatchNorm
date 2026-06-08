@@ -295,7 +295,7 @@ if __name__ == '__main__':
         break
 
     epo = 20
-    lr_list = [1e-1, 2e-1, 1e-2, 5e-2]
+    lr_list = [5e-2, 1e-1, 2e-1]
 
     vgg_loss_pool = []
     vgg_bn_loss_pool = []

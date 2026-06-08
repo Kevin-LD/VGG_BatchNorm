@@ -37,7 +37,7 @@ def main(exp_dir):
     figures_path = os.path.join(exp_dir, 'figures')
     os.makedirs(figures_path, exist_ok=True)
 
-    # 设定离线滑动平均窗口大小
+    # 设定滑动窗口大小
     W_SIZE = 20
     plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn, figures_path=figures_path, window_size=W_SIZE)
         
@@ -48,5 +48,5 @@ def main(exp_dir):
 
 if __name__ == '__main__':
     # 默认实验目录示例 (在实际运行时，请将此处替换为你由新主脚本生成的具体 runs 文件夹名称)
-    exp_dir = "runs/task2/VGG_Simplified_Landscape_20260608_170000"
+    exp_dir = "/home/kevin-ld/projects/VGG_BatchNorm/runs/task2/VGG_Simplified_Landscape_20260608_174201_final_result"
     main(exp_dir)

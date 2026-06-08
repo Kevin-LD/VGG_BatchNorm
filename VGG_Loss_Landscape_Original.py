@@ -91,7 +91,7 @@ def train_and_explore_landscape(model, optimizer, criterion, train_loader, val_l
             grad_norm = g_flat.norm().item()
             
             if grad_norm > 1e-8:
-                alphas = np.linspace(lr/2, 3*lr, 7) 
+                alphas = np.linspace(lr/2, 2.5*lr, 7) 
                 perturbed_losses = []
                 perturbed_grad_predictiveness = []
                 perturbed_betas = []
