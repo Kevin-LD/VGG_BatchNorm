@@ -7,35 +7,19 @@ import torch
 import os
 import random
 from tqdm import tqdm as tqdm
-from IPython import display
 import datetime
 import json
+import wandb
 
 from models.vgg import VGG_A
 from models.vgg import VGG_A_BatchNorm
 from data.loaders import get_cifar_loader
 
-# Constants (parameters) initialization
-device_id = [0]
+# 1. 基础配置与随机种子初始化
 num_workers = 4
 batch_size = 128
 seed_val = 42
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-def get_accuracy(model, data_loader):
-    model.eval()  
-    correct = 0
-    total = 0
-    with torch.no_grad():  
-        for x, y in data_loader:
-            x, y = x.to(device), y.to(device)
-            prediction = model(x)
-            _, predicted_classes = torch.max(prediction, 1)
-            total += y.size(0)
-            correct += (predicted_classes == y).sum().item()
-    return correct / total
-
 
 def set_random_seeds(seed_value=0, device='cpu'):
     np.random.seed(seed_value)
@@ -48,90 +32,148 @@ def set_random_seeds(seed_value=0, device='cpu'):
         torch.backends.cudnn.benchmark = False
 
 
-def train(model, optimizer, criterion, train_loader, val_loader, model_name, lr, scheduler=None, epochs_n=100):
+def train(model, optimizer, criterion, train_loader, val_loader, model_name, lr, current_run_dir, epochs_n=20):
     model.to(device)
-    learning_curve = [np.nan] * epochs_n
-    train_accuracy_curve = [np.nan] * epochs_n
-    val_accuracy_curve = [np.nan] * epochs_n
-    max_val_accuracy = 0
+    
+    # 通过 dir=current_run_dir 将 wandb 文件夹重定向至当前实验根目录下
+    wandb.init(
+        project="VGG_Optimization_Landscape",
+        name=f"{model_name}_Simplified_lr_{lr}_{datetime.datetime.now().strftime('%m%d_%H%M')}",
+        dir=current_run_dir, 
+        config={
+            "model_name": model_name,
+            "learning_rate": lr,
+            "epochs": epochs_n,
+            "batch_size": batch_size,
+            "seed": seed_val,
+            "method": "Simplified"
+        }
+    )
+    
+    # 动态创建保存目录
+    combo_dir = os.path.join(current_run_dir, f"{model_name}_SimplifiedMethod_lr_{lr}")
+    history_dir = os.path.join(combo_dir, 'history')
+    os.makedirs(history_dir, exist_ok=True)
 
-    batches_n = len(train_loader)
     losses_list = []
     grads = []
-    
-    # 为当前组合动态开辟独立的实验子目录与子 history 目录
-    combo_dir = os.path.join(current_run_dir, f"{model_name}_lr_{lr}")
-    history_dir = os.path.join(combo_dir, 'history')
-    os.makedirs(combo_dir, exist_ok=True)
-    os.makedirs(history_dir, exist_ok=True)
-    
-    best_model_path = os.path.join(combo_dir, 'best_model.pth')
+    best_val_accuracy = 0.0 
+    batches_n = len(train_loader)
 
     for epoch in range(epochs_n):
-        if scheduler is not None:
-            scheduler.step()
         model.train()
-
+        pbar = tqdm(train_loader, desc=f"[{model_name} | LR: {lr}] Epoch {epoch+1:02d}/{epochs_n}", unit='batch')
+        epoch_loss_sum = 0.0
+        correct_train_preds = 0
+        total_train_samples = 0
+        
         loss_list = []  
         grad = []       
-        learning_curve[epoch] = 0  
 
-        pbar = tqdm(train_loader, desc=f"[{model_name} | LR: {lr}] Epoch {epoch+1:02d}/{epochs_n}", unit='batch')
-        for data in pbar:
-            x, y = data
+        for x, y in pbar:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
+            
+            # 前向传播与 Loss 计算
             prediction = model(x)
             loss = criterion(prediction, y)
-            
             current_loss_val = loss.item()
-            loss_list.append(current_loss_val)
-            learning_curve[epoch] += current_loss_val
             
+            loss_list.append(current_loss_val)
+            epoch_loss_sum += current_loss_val
+            
+            # 统计训练集准确率相关数据 (在线计算，避免重复扫一遍 Dataset)
+            _, train_predicted = torch.max(prediction.data, 1)
+            total_train_samples += y.size(0)
+            correct_train_preds += (train_predicted == y).sum().item()
+            
+            # 反向传播与特定层梯度观测
             loss.backward()
             
-            if model.classifier[4].weight.grad is not None:
+            if hasattr(model, 'classifier') and len(model.classifier) > 4 and model.classifier[4].weight.grad is not None:
                 grad_norm = torch.norm(model.classifier[4].weight.grad).item()
                 grad.append(grad_norm)
             else:
                 grad.append(0.0)
+
+            # 同步上传 Step 级别的指标至 wandb
+            wandb.log({
+                "step_loss": current_loss_val
+            })
 
             optimizer.step()
             pbar.set_postfix(batch_loss=f"{current_loss_val:.4f}")
 
         losses_list.append(loss_list)
         grads.append(grad)
-        
-        # 测试精度与最佳模型留存
-        train_acc = get_accuracy(model, train_loader)
-        val_acc = get_accuracy(model, val_loader)
-        
-        train_accuracy_curve[epoch] = train_acc
-        val_accuracy_curve[epoch] = val_acc
 
-        print(f"Train Accuracy: {train_acc*100:.2f}%")
-        print(f"Val Accuracy:   {val_acc*100:.2f}%")
+        # 验证集评估
+        model.eval()
+        val_loss_sum = 0.0
+        correct_val_preds = 0
+        total_val_samples = 0
         
-        if val_acc > max_val_accuracy:
-            print(f"--> Saved best checkpoint with Val Accuracy: {val_acc*100:.2f}%")
-            max_val_accuracy = val_acc
-            torch.save(model.state_dict(), best_model_path)
+        with torch.no_grad():
+            for x_val, y_val in val_loader:
+                x_val, y_val = x_val.to(device), y_val.to(device)
+                val_prediction = model(x_val)
+                v_loss = criterion(val_prediction, y_val)
+                val_loss_sum += v_loss.item()
+                
+                _, val_predicted = torch.max(val_prediction.data, 1)
+                total_val_samples += y_val.size(0)
+                correct_val_preds += (val_predicted == y_val).sum().item()
+        
+        # 计算 Epoch 级别的最终指标
+        train_loss = epoch_loss_sum / batches_n
+        train_acc = correct_train_preds / total_train_samples
+        val_loss = val_loss_sum / len(val_loader)
+        val_acc = correct_val_preds / total_val_samples
 
-    # 展平数据
+        print(f"Train Loss: {train_loss:.4f} | Train Accuracy: {train_acc*100:.2f}%")
+        print(f"Val Loss:   {val_loss:.4f} | Val Accuracy:   {val_acc*100:.2f}%")
+
+        # 将 Epoch 级别的汇总指标同步更新至 wandb
+        wandb.log({
+            "epoch": epoch + 1,
+            "epoch_train_loss": train_loss,
+            "epoch_train_acc": train_acc,
+            "epoch_val_loss": val_loss,
+            "epoch_val_acc": val_acc
+        })
+
+        # 保存最佳 Checkpoint
+        if val_acc > best_val_accuracy:
+            best_val_accuracy = val_acc
+            print(f"--> Saved best checkpoint with Val Accuracy: {best_val_accuracy*100:.2f}%")
+            
+            metadata = {
+                'model_name': model_name,
+                'learning_rate': lr,
+                'epoch': epoch + 1,
+                'seed': seed_val,
+                'best_val_accuracy': best_val_accuracy,
+            }
+            checkpoint = {
+                'state_dict': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'metadata': metadata
+            }
+            checkpoint_path = os.path.join(combo_dir, 'best_model.pt')
+            torch.save(checkpoint, checkpoint_path)
+            
+        print("-" * 50)
+
+    # 展平数据并保存探索曲线原始文本数据
     flat_loss = [step_loss for epoch_loss in losses_list for step_loss in epoch_loss]
     flat_grad = [step_grad for epoch_grad in grads for step_grad in epoch_grad]
     
     np.savetxt(os.path.join(history_dir, 'step_losses.txt'), flat_loss, fmt='%.6f')
     np.savetxt(os.path.join(history_dir, 'step_grads.txt'), flat_grad, fmt='%.6f')
-    np.savetxt(os.path.join(history_dir, 'epoch_losses.txt'), [l/batches_n for l in learning_curve], fmt='%.6f')
-    np.savetxt(os.path.join(history_dir, 'epoch_train_acc.txt'), train_accuracy_curve, fmt='%.6f')
-    np.savetxt(os.path.join(history_dir, 'epoch_val_acc.txt'), val_accuracy_curve, fmt='%.6f')
-
-    # 计算模型的总参数量
+    
+    # 额外导出包含具体超参的独立元数据 JSON 文件
     total_params = sum(p.numel() for p in model.parameters())
-
-    # 构建完整的元数据字典，并在权重文件夹下保存为可读性极佳的 json 文件
-    metadata = {
+    full_metadata = {
         "experiment_timestamp": timestamp,
         "model_architecture": model_name,
         "total_parameters": total_params,
@@ -140,7 +182,7 @@ def train(model, optimizer, criterion, train_loader, val_loader, model_name, lr,
             "batch_size": batch_size,
             "epochs": epochs_n,
             "random_seed": seed_val,
-            "optimizer": "Adam",
+            "optimizer": "SGD",
             "criterion": "CrossEntropyLoss"
         },
         "environment": {
@@ -148,107 +190,96 @@ def train(model, optimizer, criterion, train_loader, val_loader, model_name, lr,
             "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None"
         },
         "final_metrics": {
-            "best_val_accuracy": round(max_val_accuracy, 6),
-            "final_epoch_train_accuracy": round(train_accuracy_curve[-1], 6),
-            "final_epoch_val_accuracy": round(val_accuracy_curve[-1], 6)
+            "best_val_accuracy": round(best_val_accuracy, 6),
+            "final_epoch_train_accuracy": round(train_acc, 6),
+            "final_epoch_val_accuracy": round(val_acc, 6)
         }
     }
-    
-    metadata_json_path = os.path.join(combo_dir, 'metadata.json')
-    with open(metadata_json_path, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, indent=4, ensure_ascii=False)
-        
-    print(f"组合完成 -> 权重、历史记录与元数据保存至: {combo_dir}")
+    with open(os.path.join(combo_dir, 'metadata.json'), 'w', encoding='utf-8') as f:
+        json.dump(full_metadata, f, indent=4, ensure_ascii=False)
 
+    wandb.finish()
     return flat_loss
 
-def plot_loss_landscape(min_c, max_c, min_c_bn, max_c_bn, window_size=50):
-    def moving_average(interval, window_size):
-        window = np.ones(int(window_size)) / float(window_size)
-        return np.convolve(interval, window, 'same')
 
-    # 对四条边界曲线进行平滑处理，消除 step-level 的毛刺
-    min_c_smooth = moving_average(min_c, window_size)
-    max_c_smooth = moving_average(max_c, window_size)
-    min_c_bn_smooth = moving_average(min_c_bn, window_size)
-    max_c_bn_smooth = moving_average(max_c_bn, window_size)
-    
+def plot_loss_landscape(min_c, max_c, min_c_bn, max_c_bn, figures_path, window_size=50):
+    def moving_average(interval, window=window_size):
+        w = np.ones(int(window)) / float(window)
+        return np.convolve(interval, w, 'same')
+
+    plt.figure(figsize=(11, 7), dpi=150)
+    ax = plt.gca()
+    ax.set_facecolor('#F4F6F9')
+    plt.grid(True, color='white', linestyle='-', linewidth=1.5)
+
+    color_vgg_line, color_vgg_fill = '#386B52', '#8EBC94'
+    color_bn_line, color_bn_fill = '#9E2A2B', '#E29595'
+
+    min_vgg_s = moving_average(min_c)
+    max_vgg_s = moving_average(max_c)
+    min_bn_s = moving_average(min_c_bn)
+    max_bn_s = moving_average(max_c_bn)
 
     pad = window_size // 2
-    steps = np.arange(len(min_c_smooth))[pad:-pad]
+    steps = np.arange(len(min_vgg_s))[pad:-pad]
 
-    plt.figure(figsize=(12, 7.5), dpi=150)
+    # 图层一：Standard VGG
+    plt.fill_between(steps, min_vgg_s[pad:-pad], max_vgg_s[pad:-pad], 
+                     color=color_vgg_fill, alpha=0.45, label='Standard VGG')
+    plt.plot(steps, min_vgg_s[pad:-pad], color=color_vgg_line, linewidth=1.0, alpha=0.7)
+    plt.plot(steps, max_vgg_s[pad:-pad], color=color_vgg_line, linewidth=1.0, alpha=0.7)
+
+    # 图层二：VGG + BatchNorm
+    plt.fill_between(steps, min_bn_s[pad:-pad], max_bn_s[pad:-pad], 
+                     color=color_bn_fill, alpha=0.45, label='VGG + BatchNorm')
+    plt.plot(steps, min_bn_s[pad:-pad], color=color_bn_line, linewidth=1.0, alpha=0.7)
+    plt.plot(steps, max_bn_s[pad:-pad], color=color_bn_line, linewidth=1.0, alpha=0.7)
+
+    plt.title('Loss Landscape Smoothness (Simplified Method)', fontsize=14, pad=15, fontweight='bold')
+    plt.xlabel('Optimization Steps', fontsize=12, labelpad=8)
+    plt.ylabel('Loss Range across LR Pool', fontsize=12, labelpad=8)
     
-    ax = plt.gca()
-    ax.set_facecolor('#F0F2F6')
-    plt.grid(True, color='white', linestyle='-', linewidth=1.5) # 白色网格线
-    
-
-    color_vgg_line = '#4A7C59'
-    color_vgg_fill = '#95C7AE'
-    
-    color_bn_line = '#A63A50'
-    color_bn_fill = '#D68C96'
-
-    # 图层一：Standard VGG (Without BN)
-    plt.fill_between(steps, min_c_smooth[pad:-pad], max_c_smooth[pad:-pad], 
-                     color=color_vgg_fill, alpha=0.5, label='Standard VGG')
-    plt.plot(steps, min_c_smooth[pad:-pad], color=color_vgg_line, linewidth=1.2, alpha=0.8)
-    plt.plot(steps, max_c_smooth[pad:-pad], color=color_vgg_line, linewidth=1.2, alpha=0.8)
-
-    # 图层二：Standard VGG + BatchNorm (With BN)
-    plt.fill_between(steps, min_c_bn_smooth[pad:-pad], max_c_bn_smooth[pad:-pad], 
-                     color=color_bn_fill, alpha=0.5, label='Standard VGG + BatchNorm')
-    plt.plot(steps, min_c_bn_smooth[pad:-pad], color=color_bn_line, linewidth=1.2, alpha=0.8)
-    plt.plot(steps, max_c_bn_smooth[pad:-pad], color=color_bn_line, linewidth=1.2, alpha=0.8)
-
-
-    plt.title('Loss Landscape', fontsize=16, pad=15, fontweight='medium')
-    plt.xlabel('Steps', fontsize=13, labelpad=10)
-    plt.ylabel('Loss Landscape', fontsize=13, labelpad=10)
-    
-    # 优化图例：去掉边框、放大字体，使其融入背景
-    plt.legend(fontsize=14, loc='upper right', frameon=False)
-    
-    # 美化坐标轴边界
-    plt.xlim(steps[0] - 100, steps[-1] + 100)
-    plt.tick_params(colors='#4A4A4A', labelsize=10) # 轴标签改用深灰，比纯黑更高级
+    ax.set_yscale('log')
+        
+    plt.legend(fontsize=11, loc='upper right', frameon=False)
+    plt.xlim(steps[0], steps[-1])
     
     for spine in ax.spines.values():
         spine.set_visible(False)
 
     final_fig_path = os.path.join(figures_path, 'loss_landscape_comparison.png')
     plt.tight_layout()
-    plt.savefig(final_fig_path, dpi=300, facecolor='white') # 确保边缘导出时不留黑边
+    plt.savefig(final_fig_path, dpi=300, facecolor='white')
     plt.close()
-    
-    print(f"\n成果图保存在: {final_fig_path}")
+    print(f"[成功] 成果对比图已保存在: {final_fig_path}")
 
+
+# 主程序入口
 if __name__ == '__main__':
     print(f"正在使用的物理设备 (Device): {device}")
     if torch.cuda.is_available():
         print(f"显卡型号 (GPU Name): {torch.cuda.get_device_name(0)}")
     
-    # 创建本次实验的总根目录
+    # 建立独立实验总目录
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    current_run_dir = os.path.join(os.getcwd(), 'runs', 'task2', f"VGG_Optimization_Exp_{timestamp}")
+    current_run_dir = os.path.join(os.getcwd(), 'runs', 'task2', f"VGG_Simplified_Landscape_{timestamp}")
     figures_path = os.path.join(current_run_dir, 'figures')
-
-    os.makedirs(current_run_dir, exist_ok=True)
     os.makedirs(figures_path, exist_ok=True)
-    print(f"总实验根目录已建立: {current_run_dir}\n")
+    print(f"实验根目录已建立: {current_run_dir}\n")
 
+    val_split = 0.1
+    train_loader = get_cifar_loader(batch_size=batch_size, train=True, val_split=val_split, is_val=False, shuffle=True, num_workers=num_workers)
+    val_loader = get_cifar_loader(batch_size=batch_size, train=True, val_split=val_split, is_val=True, shuffle=False, num_workers=num_workers)
+    print(f"数据加载器初始化成功：训练批次数量 {len(train_loader)}，验证批次数量 {len(val_loader)}")
 
-    train_loader = get_cifar_loader(train=True, augment=False)
-    val_loader = get_cifar_loader(train=False)
-
+    # DataLoader 状态自检流程
     for X, y in train_loader:
         print("="*50)
         print("【DataLoader 状态检查】")
         print(f"特征矩阵 X 维度: {X.shape} | 标签向量 y 维度: {y.shape}")
         print("="*50)
         
-        img = X[0].permute(1, 2, 0).numpy() # [C, H, W] -> [H, W, C]
+        img = X[0].permute(1, 2, 0).numpy()  # [C, H, W] -> [H, W, C]
         img = img * 0.5 + 0.5
         img = np.clip(img, 0, 1)
         
@@ -263,42 +294,50 @@ if __name__ == '__main__':
         print(f"样本图片保存至: {sample_save_path}\n")
         break
 
-
     epo = 20
-    lr_list = [1e-3, 2e-3, 1e-4, 5e-4]
+    lr_list = [1e-1, 2e-1, 1e-2, 5e-2]
 
     vgg_loss_pool = []
     vgg_bn_loss_pool = []
 
+    # 阶段一：标准 VGG_A 测算
     print("="*60)
-    print("阶段一：开始训练基础 VGG_A 模型（Without BN）...")
+    print(" 阶段一：开始训练基础 VGG_A 模型（Without BN）...")
     print("="*60)
     for lr in lr_list:
         set_random_seeds(seed_value=seed_val, device=device)
         model = VGG_A()
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.0)
         criterion = nn.CrossEntropyLoss()
         
-        # 调用训练，内部会自动处理子目录、元数据 JSON 和 history 文件夹
-        flat_loss = train(model, optimizer, criterion, train_loader, val_loader, 
-                        model_name="VGG_A", lr=lr, epochs_n=epo)
+        flat_loss = train(
+            model=model, optimizer=optimizer, criterion=criterion, 
+            train_loader=train_loader, val_loader=val_loader, 
+            model_name="VGG_A", lr=lr, current_run_dir=current_run_dir, epochs_n=epo
+        )
         vgg_loss_pool.append(flat_loss)
 
+    # 阶段二：带 BatchNorm 的 VGG_A 测算
     print("\n" + "="*60)
-    print("阶段二：开始训练带 BN 的 VGG_A_BatchNorm 模型...")
+    print(" 阶段二：开始训练带 BN 的 VGG_A_BatchNorm 模型...")
     print("="*60)
     for lr in lr_list:
         set_random_seeds(seed_value=seed_val, device=device)
         model = VGG_A_BatchNorm()
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.0)
         criterion = nn.CrossEntropyLoss()
         
-        flat_loss = train(model, optimizer, criterion, train_loader, val_loader, 
-                        model_name="VGG_A_BatchNorm", lr=lr, epochs_n=epo)
+        flat_loss = train(
+            model=model, optimizer=optimizer, criterion=criterion, 
+            train_loader=train_loader, val_loader=val_loader, 
+            model_name="VGG_A_BatchNorm", lr=lr, current_run_dir=current_run_dir, epochs_n=epo
+        )
         vgg_bn_loss_pool.append(flat_loss)
 
-
-    # 全局汇总极值计算并保存到根目录
+    # 阶段三：计算全局极值边界曲线并绘图
+    print("\n" + "="*60)
+    print(" 阶段三：生成最终的简化版地形对比图...")
+    print("="*60)
     vgg_loss_pool = np.array(vgg_loss_pool)       
     vgg_bn_loss_pool = np.array(vgg_bn_loss_pool) 
 
@@ -312,4 +351,4 @@ if __name__ == '__main__':
     np.savetxt(os.path.join(current_run_dir, 'landscape_vgg_bn_min_curve.txt'), min_curve_bn, fmt='%.6f')
     np.savetxt(os.path.join(current_run_dir, 'landscape_vgg_bn_max_curve.txt'), max_curve_bn, fmt='%.6f')
 
-    plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn)
+    plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn, figures_path=figures_path)
