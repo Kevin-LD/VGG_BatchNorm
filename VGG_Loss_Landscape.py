@@ -202,7 +202,7 @@ def train(model, optimizer, criterion, train_loader, val_loader, model_name, lr,
     return flat_loss
 
 
-def plot_loss_landscape(min_c, max_c, min_c_bn, max_c_bn, figures_path, window_size=50):
+def plot_loss_landscape(min_c, max_c, min_c_bn, max_c_bn, figures_path, window_size=20):
     def moving_average(interval, window=window_size):
         w = np.ones(int(window)) / float(window)
         return np.convolve(interval, w, 'same')
@@ -239,7 +239,7 @@ def plot_loss_landscape(min_c, max_c, min_c_bn, max_c_bn, figures_path, window_s
     plt.xlabel('Optimization Steps', fontsize=12, labelpad=8)
     plt.ylabel('Loss Range across LR Pool', fontsize=12, labelpad=8)
     
-    ax.set_yscale('log')
+    # ax.set_yscale('log')
         
     plt.legend(fontsize=11, loc='upper right', frameon=False)
     plt.xlim(steps[0], steps[-1])
@@ -334,9 +334,9 @@ if __name__ == '__main__':
         )
         vgg_bn_loss_pool.append(flat_loss)
 
-    # 阶段三：计算全局极值边界曲线并绘图
+    # 阶段三：绘图
     print("\n" + "="*60)
-    print(" 阶段三：生成最终的简化版地形对比图...")
+    print(" 阶段三：生成对比图...")
     print("="*60)
     vgg_loss_pool = np.array(vgg_loss_pool)       
     vgg_bn_loss_pool = np.array(vgg_bn_loss_pool) 

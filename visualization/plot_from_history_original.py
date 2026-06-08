@@ -63,8 +63,10 @@ def main(exp_dir):
     print("[加载完成] 文本矩阵提取完毕。开始并行渲染高精图表...")
     
     # 调整 window_size
-    W_SIZE = 20
-
+    LOSS_LANDSCAPE_W_SIZE = 20
+    GRADIENT_PREDICTIVENESS_W_SIZE = 1
+    EFFECITVE_BETA_SMOOTHNESS_W_SIZE = 1
+    
     # 阶段三：调用绘图引擎重新生成最终的三大景观对比图
     print("\n" + "-" * 50)
     print(" 绘图流 1/3: 重新生成 Loss Landscape Smoothness 条带图...")
@@ -75,7 +77,7 @@ def main(exp_dir):
         y_label='Loss Range along Gradient Direction',
         file_name='loss_landscape.png',
         figures_path=figures_path,
-        window_size=W_SIZE,
+        window_size=LOSS_LANDSCAPE_W_SIZE,
         as_line=False
     )
 
@@ -87,7 +89,7 @@ def main(exp_dir):
         y_label=r'$\|\nabla L(W) - \nabla L(W_{perturbed})\|_2^2$',
         file_name='gradient_predictiveness.png',
         figures_path=figures_path,
-        window_size=W_SIZE,
+        window_size=GRADIENT_PREDICTIVENESS_W_SIZE,
         as_line=False
     )
 
@@ -99,7 +101,7 @@ def main(exp_dir):
         y_label=r'$\max_{\alpha} (\|\Delta \nabla L\|_2 / \alpha)$',
         file_name='beta_smoothness.png',
         figures_path=figures_path,
-        window_size=W_SIZE,
+        window_size=EFFECITVE_BETA_SMOOTHNESS_W_SIZE,
         as_line=True
     )
 
@@ -109,6 +111,6 @@ def main(exp_dir):
 
 
 if __name__ == '__main__':
-    exp_dir = "runs/task2/VGG_OriginalPaper_Landscape_20260607_173548"
+    exp_dir = "runs/task2/VGG_OriginalPaper_Landscape_20260608_162958"
     
     main(exp_dir)

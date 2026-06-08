@@ -4,13 +4,7 @@ import numpy as np
 
 sys.path.append(os.getcwd())
 
-try:
-    import VGG_Loss_Landscape
-    from VGG_Loss_Landscape import plot_loss_landscape
-except ImportError:
-    print("错误：未能在当前工作目录下找到 VGG_Loss_Landscape.py 文件。")
-    print("请确保在包含 VGG_Loss_Landscape.py 的正确路径下运行此脚本。")
-    sys.exit(1)
+from VGG_Loss_Landscape import plot_loss_landscape
 
 def main(exp_dir):    
     if not os.path.exists(exp_dir):
@@ -40,21 +34,19 @@ def main(exp_dir):
     
     print(f"成功加载数据！总时间步长 (Total Training Steps): {len(min_curve)}")
 
-    target_figures_path = os.path.join(exp_dir, 'figures')
-    os.makedirs(target_figures_path, exist_ok=True)
-    VGG_Loss_Landscape.figures_path = target_figures_path
+    figures_path = os.path.join(exp_dir, 'figures')
+    os.makedirs(figures_path, exist_ok=True)
 
-    try:
-        window_size_config = 30
-        plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn, window_size=window_size_config)
-    except TypeError:
-        plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn)
+    # 设定离线滑动平均窗口大小
+    W_SIZE = 20
+    plot_loss_landscape(min_curve, max_curve, min_curve_bn, max_curve_bn, figures_path=figures_path, window_size=W_SIZE)
         
     print("\n" + "="*60)
     print(f"成果图已保存在目标实验目录下：")
-    print(f"图片路径: {os.path.join(target_figures_path, 'loss_landscape_comparison.png')}")
+    print(f"图片路径: {os.path.join(figures_path, 'loss_landscape_comparison.png')}")
     print("="*60)
 
 if __name__ == '__main__':
-    exp_dir = "runs/task2/VGG_Optimization_Exp_20260607_101350"
+    # 默认实验目录示例 (在实际运行时，请将此处替换为你由新主脚本生成的具体 runs 文件夹名称)
+    exp_dir = "runs/task2/VGG_Simplified_Landscape_20260608_170000"
     main(exp_dir)

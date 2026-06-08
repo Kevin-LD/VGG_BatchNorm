@@ -91,7 +91,7 @@ def train_and_explore_landscape(model, optimizer, criterion, train_loader, val_l
             grad_norm = g_flat.norm().item()
             
             if grad_norm > 1e-8:
-                alphas = np.linspace(lr/2, 4*lr, 7) 
+                alphas = np.linspace(lr/2, 3*lr, 7) 
                 perturbed_losses = []
                 perturbed_grad_predictiveness = []
                 perturbed_betas = []
@@ -246,6 +246,9 @@ def train_and_explore_landscape(model, optimizer, criterion, train_loader, val_l
 # 可视化画图函数
 def plot_landscape_metric(vgg_data, bn_data, metric_title, y_label, file_name, figures_path, window_size=20, as_line=False):
     def moving_average(interval, window=window_size):
+        # 如果窗口大小小于等于 1，直接返回原数据，不进行平滑
+        if window <= 1:
+            return interval
         w = np.ones(int(window)) / float(window)
         return np.convolve(interval, w, 'same')
 
@@ -257,14 +260,17 @@ def plot_landscape_metric(vgg_data, bn_data, metric_title, y_label, file_name, f
     color_vgg_line, color_vgg_fill = '#386B52', '#8EBC94'
     color_bn_line, color_bn_fill = '#9E2A2B', '#E29595'
 
+    pad = window_size // 2
+    sl = slice(pad, -pad) if pad > 0 else slice(None)
+
     if as_line:
         vgg_s = moving_average(vgg_data)
         bn_s = moving_average(bn_data)
-        pad = window_size // 2
-        steps = np.arange(len(vgg_s))[pad:-pad]
+        
+        steps = np.arange(len(vgg_s))[sl]
 
-        plt.plot(steps, vgg_s[pad:-pad], color=color_vgg_line, linewidth=2.2, label='Standard VGG')
-        plt.plot(steps, bn_s[pad:-pad], color=color_bn_line, linewidth=2.2, label='VGG + BatchNorm')
+        plt.plot(steps, vgg_s[sl], color=color_vgg_line, linewidth=2.2, label='Standard VGG')
+        plt.plot(steps, bn_s[sl], color=color_bn_line, linewidth=2.2, label='VGG + BatchNorm')
     else:
         min_vgg, max_vgg = vgg_data
         min_bn, max_bn = bn_data
@@ -274,25 +280,24 @@ def plot_landscape_metric(vgg_data, bn_data, metric_title, y_label, file_name, f
         min_bn_s = moving_average(min_bn)
         max_bn_s = moving_average(max_bn)
 
-        pad = window_size // 2
-        steps = np.arange(len(min_vgg_s))[pad:-pad]
+        steps = np.arange(len(min_vgg_s))[sl]
 
-        plt.fill_between(steps, min_vgg_s[pad:-pad], max_vgg_s[pad:-pad], 
+        plt.fill_between(steps, min_vgg_s[sl], max_vgg_s[sl], 
                          color=color_vgg_fill, alpha=0.45, label='Standard VGG')
-        plt.plot(steps, min_vgg_s[pad:-pad], color=color_vgg_line, linewidth=1.0, alpha=0.7)
-        plt.plot(steps, max_vgg_s[pad:-pad], color=color_vgg_line, linewidth=1.0, alpha=0.7)
+        plt.plot(steps, min_vgg_s[sl], color=color_vgg_line, linewidth=1.0, alpha=0.7)
+        plt.plot(steps, max_vgg_s[sl], color=color_vgg_line, linewidth=1.0, alpha=0.7)
 
-        plt.fill_between(steps, min_bn_s[pad:-pad], max_bn_s[pad:-pad], 
+        plt.fill_between(steps, min_bn_s[sl], max_bn_s[sl], 
                          color=color_bn_fill, alpha=0.45, label='VGG + BatchNorm')
-        plt.plot(steps, min_bn_s[pad:-pad], color=color_bn_line, linewidth=1.0, alpha=0.7)
-        plt.plot(steps, max_bn_s[pad:-pad], color=color_bn_line, linewidth=1.0, alpha=0.7)
+        plt.plot(steps, min_bn_s[sl], color=color_bn_line, linewidth=1.0, alpha=0.7)
+        plt.plot(steps, max_bn_s[sl], color=color_bn_line, linewidth=1.0, alpha=0.7)
 
     plt.title(metric_title, fontsize=14, pad=15, fontweight='bold')
     plt.xlabel('Optimization Steps', fontsize=12, labelpad=8)
     plt.ylabel(y_label, fontsize=12, labelpad=8)
     
-    if 'Loss' in metric_title:
-        ax.set_yscale('log')
+    # if 'Loss' in metric_title:
+    #     ax.set_yscale('log')
         
     plt.legend(fontsize=11, loc='upper right', frameon=False)
     plt.xlim(steps[0], steps[-1])
@@ -356,10 +361,14 @@ if __name__ == '__main__':
         current_run_dir=current_run_dir, epochs_n=epo
     )
 
-    # 阶段三：绘制三大景观对比图
+    # 阶段三：绘制景观对比图
     print("\n" + "="*60)
-    print(" 阶段三：生成最终的三大景观对比图...")
+    print(" 阶段三：生成对比图...")
     print("="*60)
+
+    LOSS_LANDSCAPE_W_SIZE = 20
+    GRADIENT_PREDICTIVENESS_W_SIZE = 1
+    EFFECITVE_BETA_SMOOTHNESS_W_SIZE = 1
     
     # 1. 绘制 Loss Landscape
     plot_landscape_metric(
@@ -368,6 +377,7 @@ if __name__ == '__main__':
         y_label='Loss Range along Gradient Direction',
         file_name='loss_landscape.png',
         figures_path=figures_path,
+        window_size=LOSS_LANDSCAPE_W_SIZE,
         as_line=False
     )
     
@@ -378,6 +388,7 @@ if __name__ == '__main__':
         y_label=r'$\|\nabla L(W) - \nabla L(W_{perturbed})\|_2$',
         file_name='gradient_predictiveness.png',
         figures_path=figures_path,
+        window_size=GRADIENT_PREDICTIVENESS_W_SIZE,
         as_line=False
     )
     
@@ -388,5 +399,6 @@ if __name__ == '__main__':
         y_label = r'$\frac{\|\Delta \nabla L\|_2}{\|\Delta w\|_2}$',
         file_name='beta_smoothness.png',
         figures_path=figures_path,
+        window_size=EFFECITVE_BETA_SMOOTHNESS_W_SIZE,
         as_line=True
     )
