@@ -81,14 +81,14 @@ class CIFAR10ResidualNet(nn.Module):
         c2 = base_channels * 2
         c3 = base_channels * 4
 
-        # 阶段 1: 初始特征提取
+        # 初始特征提取
         self.prep = nn.Sequential(
             nn.Conv2d(3, c1, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(c1),
             get_activation(activation_type)
         )
 
-        # 阶段 2: 残差网络
+        # 残差网络
         # 组件 2(b): 2D 卷积隐含在残差块内部
         self.layer1 = self._make_layer(c1, c1, num_blocks[0], activation_type)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 组件 2(c): 2D 池化
@@ -100,7 +100,7 @@ class CIFAR10ResidualNet(nn.Module):
         # 采用自适应平均池化，将特征图大小固定为 1x1，提高对不同输入尺寸的鲁棒性并减少全连接层参数量
         self.pool3 = nn.AdaptiveAvgPool2d((1, 1))
 
-        # 阶段 3: 分类器
+        # 分类器
         # 组件 3(b): Dropout 层，用于正则化防止过拟合
         self.dropout = nn.Dropout(p=dropout_rate)
         

@@ -230,10 +230,10 @@ if __name__ == "__main__":
     # rows, cols: 错例展示矩阵的行数与列数（相乘即为展示错例的总数）。
     # random_seed: 随机数种子。固定种子可以确保多次运行脚本时抽到相同的错例，
     #              如果希望每次运行完全随机，可以将其设为 None。
-    target_pt_path = "runs/sgd_ce_gelu_ch64_b333_20260605_121836_epoch_100/best_model.pt"
+    target_pt_path = "runs/task1/sgd_ce_gelu_ch64_b333_20260605_121836_epoch_100_best/best_model.pt"
     rows = 3
     cols = 4
-    seed = 42
+    seed = None
     
     execute_error_analysis_pipeline(
         model_path=target_pt_path,

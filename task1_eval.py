@@ -77,6 +77,6 @@ def test_model(model_path):
 
 if __name__ == "__main__":
     # 指定需要评估的 best_model.pt 的路径
-    MODEL_WEIGHT_PATH = 'runs/sgd_ce_smoothing_0.05_relu_ch64_b333_20260605_140540_epoch_100/best_model.pt'
+    MODEL_WEIGHT_PATH = 'runs/task1/sgd_ce_gelu_ch64_b333_20260605_121836_epoch_100_best/best_model.pt'
 
     test_model(MODEL_WEIGHT_PATH)

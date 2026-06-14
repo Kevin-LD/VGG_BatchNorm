@@ -74,6 +74,6 @@ def test_vgg_model(model_path):
 
 if __name__ == "__main__":
     # 指定需要评估的最佳模型的路径
-    MODEL_WEIGHT_PATH = 'runs/task2/VGG_OriginalPaper_Landscape_20260608_115158/VGG_A_BatchNorm_OriginalMethod_lr_0.1/best_model.pt'
+    MODEL_WEIGHT_PATH = 'runs/task2/VGG_OriginalPaper_Landscape_20260608_193100_final_result/VGG_A_BatchNorm_OriginalMethod_lr_0.1/best_model.pt'
 
     test_vgg_model(MODEL_WEIGHT_PATH)

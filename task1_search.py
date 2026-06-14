@@ -3,7 +3,7 @@ import copy
 import json
 from datetime import datetime
 from itertools import product
-# 从训练脚本中导入修改后的核心训练函数
+# 从训练脚本中导入训练函数
 from task1_train import train_model
 
 def run_hyperparameter_search():
